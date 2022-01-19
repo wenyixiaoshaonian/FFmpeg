@@ -8,9 +8,11 @@
 #include "libswresample/swresample.h"
 #include "libavutil/opt.h"
 #include <libavformat/internal.h>
+#include <libavutil/timestamp.h>
 
 
 #define AUDIO_INBUF_SIZE 20480
+static int audio_frame_count = 0;
 
 static int get_format_from_sample_fmt(const char **fmt,
                                       enum AVSampleFormat sample_fmt)
@@ -69,6 +71,10 @@ static int decode(AVCodecContext *dec_ctx, AVPacket *pkt, AVFrame *frame,
             fprintf(stderr, "Failed to calculate data size\n");
             return -1;
         }
+        printf("audio_frame n:%d nb_samples:%d pts:%s\n",
+           audio_frame_count++, frame->nb_samples,
+           av_ts2timestr(frame->pts, &dec_ctx->time_base));
+        
         for (i = 0; i < frame->nb_samples; i++)
             for (ch = 0; ch < dec_ctx->channels; ch++)
                 fwrite(frame->data[ch] + data_size*i, 1, data_size, outfile);
@@ -92,6 +98,7 @@ int CBX_aactopcm(const char *src,const char *des)
     int n_channels = 0;
     const char *fmt;
     AVOutputFormat* input_fmt;
+    uint8_t inbuf[AUDIO_INBUF_SIZE + AV_INPUT_BUFFER_PADDING_SIZE];
 
     filename    = src;
     outfilename = des;
@@ -104,6 +111,7 @@ int CBX_aactopcm(const char *src,const char *des)
         fprintf(stderr, "Codec not found\n");
         return -1;
     }
+    memset(inbuf + AUDIO_INBUF_SIZE, 0, AV_INPUT_BUFFER_PADDING_SIZE);
 
     parser = av_parser_init(codec->id);
     if (!parser) {
@@ -118,14 +126,14 @@ int CBX_aactopcm(const char *src,const char *des)
     }
 
 	c->codec_id = input_fmt->video_codec;
-	c->codec_type = AVMEDIA_TYPE_AUDIO;
-	c->sample_fmt = codec->sample_fmts[0];
-	c->sample_rate= 16000;
-	c->channel_layout=AV_CH_LAYOUT_STEREO;
-	c->channels = av_get_channel_layout_nb_channels(c->channel_layout);
-	c->bit_rate = 33000;  
-	c->profile=FF_PROFILE_AAC_LOW ;
-	c->strict_std_compliance = FF_COMPLIANCE_EXPERIMENTAL; 
+//	c->codec_type = AVMEDIA_TYPE_AUDIO;
+//	c->sample_fmt = codec->sample_fmts[0];
+//	c->sample_rate= 16000;
+//	c->channel_layout=AV_CH_LAYOUT_STEREO;
+//	c->channels = av_get_channel_layout_nb_channels(c->channel_layout);
+//	c->bit_rate = 33000;  
+//	c->profile=FF_PROFILE_AAC_LOW ;
+//	c->strict_std_compliance = FF_COMPLIANCE_EXPERIMENTAL; 
 
     /* open it */
     if (avcodec_open2(c, codec, NULL) < 0) {
@@ -157,7 +165,7 @@ int CBX_aactopcm(const char *src,const char *des)
     }
     
     while (!feof(f)) {
-        data_size = fread(data, 1, AUDIO_INBUF_SIZE, f);
+        data_size = fread(inbuf, 1, AUDIO_INBUF_SIZE, f);
         if (!data_size)
         {
             fprintf(stderr, "Could not read audio frame\n");
@@ -165,7 +173,7 @@ int CBX_aactopcm(const char *src,const char *des)
             fclose(outfile);
             return -1;
         }
-    
+        data = inbuf;
         while (data_size > 0) {
             ret = av_parser_parse2(parser, c, &pkt->data, &pkt->size,
                                    data, data_size,
@@ -203,6 +211,11 @@ int CBX_aactopcm(const char *src,const char *des)
            "ffplay -f %s -ac %d -ar %d %s\n",
            fmt, n_channels, c->sample_rate,
            outfilename);
+    printf(">>>=== c->sample_fmt = %d\n",c->sample_fmt);
+    printf(">>>=== c->sample_rate = %d\n",c->sample_rate);
+    printf(">>>=== c->channel_layout = %d\n",c->channel_layout);
+    printf(">>>=== c->bit_rate = %d\n",c->bit_rate);
+    printf(">>>=== c->profile = %d\n",c->profile);
 end:
     fclose(outfile);
     fclose(f);

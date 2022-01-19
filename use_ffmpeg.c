@@ -25,8 +25,11 @@ int main(int argc, char **argv)
     }
 #endif
 //      CBX_demux(argv[1],argv[2],argv[3]);
-    CBX_264toYUV(argv[1],argv[2]);
+//    CBX_264toYUV(argv[1],argv[2]);
 //    CBX_H264toYUV(argv[1],argv[2]);
+//    CBX_aactopcm(argv[1],argv[2]);
+    CBX_pcmtoaac(argv[1],argv[2]);
+//    CBX_demux_codec(argv[1],argv[2],argv[3]);
 
 //    CBX_YUVto264(argv[1],argv[2]);
 //    CBX_yuvtoH264(argv[1],argv[2]);

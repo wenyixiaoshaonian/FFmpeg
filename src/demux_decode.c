@@ -22,6 +22,37 @@ static uint8_t *video_dst_data[4] = {NULL};
 static int video_dst_linesize[4];
 static int audio_frame_count = 0;
 static int video_dst_bufsize = 0;
+static AVCodecContext *pCodecCtx_v= NULL;
+static AVCodecContext *pCodecCtx_a= NULL;
+static int get_format_from_sample_fmt(const char **fmt,
+                                      enum AVSampleFormat sample_fmt)
+{
+    int i;
+    struct sample_fmt_entry {
+        enum AVSampleFormat sample_fmt; const char *fmt_be, *fmt_le;
+    } sample_fmt_entries[] = {
+        { AV_SAMPLE_FMT_U8,  "u8",    "u8"    },
+        { AV_SAMPLE_FMT_S16, "s16be", "s16le" },
+        { AV_SAMPLE_FMT_S32, "s32be", "s32le" },
+        { AV_SAMPLE_FMT_FLT, "f32be", "f32le" },
+        { AV_SAMPLE_FMT_DBL, "f64be", "f64le" },
+    };
+    *fmt = NULL;
+
+    for (i = 0; i < FF_ARRAY_ELEMS(sample_fmt_entries); i++) {
+        struct sample_fmt_entry *entry = &sample_fmt_entries[i];
+        if (sample_fmt == entry->sample_fmt) {
+            *fmt = AV_NE(entry->fmt_be, entry->fmt_le);
+            return 0;
+        }
+    }
+
+    fprintf(stderr,
+            "sample format %s is not supported as output format\n",
+            av_get_sample_fmt_name(sample_fmt));
+    return -1;
+}
+
 static int output_video_frame(AVCodecContext *dec,AVFrame *frame)
 {
     if (frame->width != dec->width || frame->height != dec->height ||
@@ -52,20 +83,22 @@ static int output_video_frame(AVCodecContext *dec,AVFrame *frame)
 
 static int output_audio_frame(AVCodecContext *dec,AVFrame *frame)
 {
+    int i, ch;
+    int ret, data_size;
     size_t unpadded_linesize = frame->nb_samples * av_get_bytes_per_sample(frame->format);
     printf("audio_frame n:%d nb_samples:%d pts:%s\n",
            audio_frame_count++, frame->nb_samples,
            av_ts2timestr(frame->pts, &dec->time_base));
 
-    /* Write the raw audio data samples of the first plane. This works
-     * fine for packed formats (e.g. AV_SAMPLE_FMT_S16). However,
-     * most audio decoders output planar audio, which uses a separate
-     * plane of audio samples for each channel (e.g. AV_SAMPLE_FMT_S16P).
-     * In other words, this code will write only the first audio channel
-     * in these cases.
-     * You should use libswresample or libavfilter to convert the frame
-     * to packed data. */
-    fwrite(frame->extended_data[0], 1, unpadded_linesize, audio_dst_file);
+     data_size = av_get_bytes_per_sample(dec->sample_fmt);
+     if (data_size < 0) {
+        /* This should not occur, checking just for paranoia */
+        fprintf(stderr, "Failed to calculate data size\n");
+        return -1;
+        }
+    for (i = 0; i < frame->nb_samples; i++)
+        for (ch = 0; ch < dec->channels; ch++)
+            fwrite(frame->data[ch] + data_size*i, 1, data_size, audio_dst_file);
 
     return 0;
 }
@@ -97,7 +130,7 @@ static int decode_packet(AVCodecContext *dec, const AVPacket *pkt,AVFrame *frame
         // write the frame data to output file
         if (dec->codec->type == AVMEDIA_TYPE_VIDEO)
             ret = output_video_frame(dec,frames);
-        else if(dec->codec->type == AVMEDIA_TYPE_AUDIO)
+        else
             ret = output_audio_frame(dec,frames);
 
         av_frame_unref(frames);
@@ -122,7 +155,7 @@ static int open_input_file(const char *filename,AVFormatContext **ifmt)
         printf( "Cannot find stream information\n");
         return ret;
     }
-    av_dump_format(ifmt, 0, filename, 0);
+//    av_dump_format(ifmt, 0, filename, 0);
 }
 
 static int open_codec_context(int *stream_idx,
@@ -183,9 +216,11 @@ int CBX_demux_codec(const char *src,const char *des_video,const char *des_audio)
     AVFormatContext *ifmt_ctx = NULL;
     int ret = 0;
     const char *infile,*out_videofile,*out_audiofile;
-    int *stream_v_idx,*stream_a_idx;
-    AVCodecContext *pCodecCtx_v= NULL;
-    AVCodecContext *pCodecCtx_a= NULL;
+    int stream_v_idx,stream_a_idx;
+    enum AVSampleFormat sfmt;
+    int n_channels = 0;
+    const char *fmt;
+
     AVPacket *pkt = NULL;
     AVFrame *frame = NULL;
 
@@ -197,8 +232,8 @@ int CBX_demux_codec(const char *src,const char *des_video,const char *des_audio)
     open_input_file(infile,&ifmt_ctx);
 
     //获取编码器信息
-    open_codec_context(stream_v_idx,&pCodecCtx_v,ifmt_ctx,AVMEDIA_TYPE_VIDEO);
-    open_codec_context(stream_a_idx,&pCodecCtx_a,ifmt_ctx,AVMEDIA_TYPE_AUDIO);
+    open_codec_context(&stream_v_idx,&pCodecCtx_v,ifmt_ctx,AVMEDIA_TYPE_VIDEO);
+    open_codec_context(&stream_a_idx,&pCodecCtx_a,ifmt_ctx,AVMEDIA_TYPE_AUDIO);
 
     //创建存放解码前后数据的缓冲区
     frame = av_frame_alloc();
@@ -223,7 +258,7 @@ int CBX_demux_codec(const char *src,const char *des_video,const char *des_audio)
     video_dst_bufsize = ret;
 
     //打开输出文件
-    audio_dst_file = fopen(out_audiofile, "rb");
+    audio_dst_file = fopen(out_audiofile, "wb+");
     if (!audio_dst_file) {
         fprintf(stderr, "Could not open %s\n", out_audiofile);
         exit(1);
@@ -256,6 +291,32 @@ int CBX_demux_codec(const char *src,const char *des_video,const char *des_audio)
     decode_packet(pCodecCtx_a,NULL,frame);
 
     printf("Demuxing succeeded.\n");
+
+    /* print output pcm infomations, because there have no metadata of pcm */
+    sfmt = pCodecCtx_a->sample_fmt;
+
+    if (av_sample_fmt_is_planar(sfmt)) {
+        const char *packed = av_get_sample_fmt_name(sfmt);
+        printf("Warning: the sample format the decoder produced is planar "
+               "(%s). This example will output the first channel only.\n",
+               packed ? packed : "?");
+        sfmt = av_get_packed_sample_fmt(sfmt);
+    }
+
+    n_channels = pCodecCtx_a->channels;
+    if ((ret = get_format_from_sample_fmt(&fmt, sfmt)) < 0)
+        goto end;
+
+    printf("Play the output audio file with the command:\n"
+           "ffplay -f %s -ac %d -ar %d %s\n",
+           fmt, n_channels, pCodecCtx_a->sample_rate,
+           out_audiofile);
+    
+    printf("Play the output video file with the command:\n"
+           "ffplay -f rawvideo -pix_fmt %s -video_size %dx%d %s\n",
+           av_get_pix_fmt_name(pCodecCtx_v->pix_fmt), pCodecCtx_v->width, pCodecCtx_v->height,
+           out_videofile);
+
 
 end:
     avcodec_free_context(&pCodecCtx_v);
