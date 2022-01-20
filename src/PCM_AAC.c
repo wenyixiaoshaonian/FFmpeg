@@ -4,6 +4,40 @@
 #include "libswresample/swresample.h"
 #include "libavutil/opt.h"
 #include <libavformat/internal.h>
+#include <fdk-aac/aacenc_lib.h>
+#include <libavcodec/codec.h>
+
+ /* check that a given sample format is supported by the encoder */
+ static int check_sample_fmt(const AVCodec *codec, enum AVSampleFormat sample_fmt)
+ {
+     const enum AVSampleFormat *p = codec->sample_fmts;
+ 
+     while (*p != AV_SAMPLE_FMT_NONE) {
+         if (*p == sample_fmt)
+             return 1;
+         p++;
+     }
+     return 0;
+ }
+
+ /* just pick the highest supported samplerate */
+ static int select_sample_rate(const AVCodec *codec)
+ {
+     const int *p;
+     int best_samplerate = 0;
+ 
+     if (!codec->supported_samplerates)
+         return 44100;
+ 
+     p = codec->supported_samplerates;
+     while (*p) {
+         if (!best_samplerate || abs(44100 - *p) < abs(44100 - best_samplerate))
+             best_samplerate = *p;
+         p++;
+     }
+     return best_samplerate;
+ }
+ 
 
  static int encode(AVCodecContext *ctx, AVFrame *frame, AVPacket *pkt)
  {
@@ -28,24 +62,7 @@
      }
     return 0;
  }
-static int alloc_swr(SwrContext *pswr)
-{
-    int ret;
 
-    av_opt_set_int(pswr, "in_channel_layout",  AV_CH_LAYOUT_STEREO, 0);
-    av_opt_set_int(pswr, "out_channel_layout", AV_CH_LAYOUT_STEREO,  0);
-    av_opt_set_int(pswr, "in_sample_rate",     48000, 0);
-    av_opt_set_int(pswr, "out_sample_rate",    48000, 0);
-    av_opt_set_sample_fmt(pswr, "in_sample_fmt",  AV_SAMPLE_FMT_S32, 0);
-    av_opt_set_sample_fmt(pswr, "out_sample_fmt", AV_SAMPLE_FMT_FLTP,  0);
-    ret = swr_init(pswr);
-    if(ret < 0)
-    {
-        fprintf(stderr, "Error swr_init\n");
-        return -1;
-    }
-    return 0;
-}
  int CBX_pcmtoaac(const char *src,const char *des)
  {
      const char *out_file, *in_file;
@@ -83,28 +100,33 @@ static int alloc_swr(SwrContext *pswr)
          printf("Failed to open output file!\n");
          return -1;
      }
-     audio_st = avformat_new_stream(pFormatCtx, 0);
+ //    pCodec = avcodec_find_encoder(fmt->audio_codec);
+    pCodec = avcodec_find_encoder_by_name("libfdk_aac");
+    if (!pCodec){
+      printf("Can not find encoder!\n");
+      return -1;
+    }
+    pFormatCtx->url = av_strdup(out_file);
+    
+     audio_st = avformat_new_stream(pFormatCtx, pCodec);
      if (audio_st==NULL){
          return -1;
      }
 
+
      //创建AVCodecContext并且填充数据流
     pCodecCtx = audio_st->internal->avctx;
-    pCodecCtx->codec_id = AV_CODEC_ID_AAC;
+    pCodecCtx->codec_id = pCodec->id;
     pCodecCtx->codec_type = AVMEDIA_TYPE_AUDIO;
     pCodecCtx->sample_fmt = AV_SAMPLE_FMT_FLTP;
     pCodecCtx->sample_rate= 48000;
     pCodecCtx->channel_layout=AV_CH_LAYOUT_STEREO;
     pCodecCtx->channels = av_get_channel_layout_nb_channels(pCodecCtx->channel_layout);
-    pCodecCtx->bit_rate = 158696;  
+    pCodecCtx->bit_rate = 1500000;  
     pCodecCtx->profile=FF_PROFILE_AAC_LOW ;
     pCodecCtx->strict_std_compliance = FF_COMPLIANCE_EXPERIMENTAL; 
 
-    pCodec = avcodec_find_encoder(pCodecCtx->codec_id);
-    if (!pCodec){
-      printf("Can not find encoder!\n");
-      return -1;
-    }
+    printf(">>>===  fmt->audio_codec = %d   AV_CODEC_ID_AAC = %d  pCodec->sample_fmts[0] = %d \n",fmt->audio_codec,AV_CODEC_ID_AAC,pCodec->sample_fmts[0]);
 
     //Show some information
     av_dump_format(pFormatCtx, 0, out_file, 1);
@@ -123,10 +145,10 @@ static int alloc_swr(SwrContext *pswr)
     swr = swr_alloc();
     av_opt_set_int(swr, "in_channel_layout",  AV_CH_LAYOUT_STEREO, 0);
     av_opt_set_int(swr, "out_channel_layout", AV_CH_LAYOUT_STEREO,  0);
-    av_opt_set_int(swr, "in_sample_rate",     48000, 0);
-    av_opt_set_int(swr, "out_sample_rate",    48000, 0);
-    av_opt_set_sample_fmt(swr, "in_sample_fmt",  AV_SAMPLE_FMT_S32, 0);
-    av_opt_set_sample_fmt(swr, "out_sample_fmt", AV_SAMPLE_FMT_FLTP,  0);
+    av_opt_set_int(swr, "in_sample_rate",     select_sample_rate(pCodec), 0);
+    av_opt_set_int(swr, "out_sample_rate",    select_sample_rate(pCodec), 0);
+    av_opt_set_sample_fmt(swr, "in_sample_fmt",  AV_SAMPLE_FMT_FLTP, 0);
+    av_opt_set_sample_fmt(swr, "out_sample_fmt", AV_SAMPLE_FMT_S16,  0);
     ret = swr_init(swr);
 #endif
      pFrame = av_frame_alloc();
@@ -170,13 +192,15 @@ static int alloc_swr(SwrContext *pswr)
          pFrame->data[0] =frame_buf;//audioFrame 是VFrame
  //        pFrame->data[1] =(uint8_t*)outs[1];
 
-         pFrame->pts=i*100;
+         pFrame->pts=i;
          i++;
          //Encode
          encode(pCodecCtx,pFrame,pkt);
 
   //       printf("Succeed to encode 1 frame! \tsize:%5d\n",pkt->size);
          pkt->stream_index = audio_st->index;
+ //        pkt->pts +=1;
+         printf(" count = %d   pkt->pts = %d  pkt->size = %d\n",i,pkt->pts,pkt->size);
          ret = av_write_frame(pFormatCtx, pkt);
          if (ret < 0) {
              fprintf(stderr, "av_write_frame error\n");
@@ -186,6 +210,7 @@ static int alloc_swr(SwrContext *pswr)
      }
      //Flush Encoder
      encode(pCodecCtx,NULL,pkt);
+     pkt->pts +=1;
      ret = av_write_frame(pFormatCtx, pkt);
      if (ret < 0) {
          fprintf(stderr, "av_write_frame_ending error\n");
