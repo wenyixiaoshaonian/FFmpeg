@@ -86,11 +86,12 @@ static int output_audio_frame(AVCodecContext *dec,AVFrame *frame)
     int i, ch;
     int ret, data_size;
     size_t unpadded_linesize = frame->nb_samples * av_get_bytes_per_sample(frame->format);
-    printf("audio_frame n:%d nb_samples:%d pts:%s\n",
-           audio_frame_count++, frame->nb_samples,
-           av_ts2timestr(frame->pts, &dec->time_base));
 
      data_size = av_get_bytes_per_sample(dec->sample_fmt);
+     printf("audio_frame n:%d nb_samples:%d pts:%s  size: %d \n",
+            audio_frame_count++, frame->nb_samples,
+            av_ts2timestr(frame->pts, &dec->time_base),data_size*frame->nb_samples*2);
+
      if (data_size < 0) {
         /* This should not occur, checking just for paranoia */
         fprintf(stderr, "Failed to calculate data size\n");
