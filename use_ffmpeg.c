@@ -13,7 +13,7 @@ extern int CBX_yuvtoH264(const char *src,const char *des);         //use avforma
 
 int main(int argc, char **argv)
 {
-#if 1
+#if 0
     if (argc < 2) {
         fprintf(stderr, "Usage: %s <input file> <output file>\n", argv[0]);
         exit(0);

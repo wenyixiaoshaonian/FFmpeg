@@ -4,7 +4,7 @@
 #include "libswresample/swresample.h"
 #include "libavutil/opt.h"
 #include <libavformat/internal.h>
-#include <fdk-aac/aacenc_lib.h>
+//#include <fdk-aac/aacenc_lib.h>
 #include <libavcodec/codec.h>
 
  /* check that a given sample format is supported by the encoder */

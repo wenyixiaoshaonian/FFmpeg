@@ -14,7 +14,7 @@ CC ?= gcc
 CXX ?= g++
 
 INC_CLUDE = -I$(CURDIR)/local/include
-LIBS    := -lavdevice -lm -lxcb -lxcb-shape -lxcb-xfixes -lasound -lSDL2 -lsndio -lXv -lX11 -lXext -lavfilter -pthread -lm -lass -lfreetype -lpostproc -lm -lavformat -lm -lz -lavcodec -lvpx -lm -lvpx -lm -lvpx -lm -lvpx -lm -pthread -lm -lz -lfdk-aac -lmp3lame -lm -lopus -ltheoraenc -ltheoradec -logg -lvorbis -lvorbisenc -lx264 -lx265 -lxvidcore -lswresample -lm -lswscale -lm -lavutil -pthread -lm -lXv -lX11 -lXext
+LIBS    := -lavdevice -lavformat -lavfilter -lavcodec -lswresample -lswscale -lavutil
 LDFLAGS := -L$(CURDIR)/local/lib -L/usr/local/lib
 
 SOURCES += $(wildcard $(CURDIR)/src/*.c)

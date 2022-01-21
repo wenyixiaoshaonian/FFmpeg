@@ -227,7 +227,7 @@ int CBX_demux_codec(const char *src,const char *des_video,const char *des_audio)
     infile        = src;
     out_videofile = des_video;
     out_audiofile = des_audio;
-
+    int i = 0;
     //读取输入文件信息
     open_input_file(infile,&ifmt_ctx);
 
@@ -283,7 +283,9 @@ int CBX_demux_codec(const char *src,const char *des_video,const char *des_audio)
         }
         else if(stream_a_idx == pkt->stream_index)
         {
+            printf(" count = %d   pkt->pts = %d  pkt->size = %d\n",i,pkt->pts,pkt->size);
             decode_packet(pCodecCtx_a,pkt,frame);
+            i++;
         }
     }
 
