@@ -11,6 +11,8 @@ extern int CBX_H264toYUV(const char *src,const char *des);         //not use avf
 extern int CBX_YUVto264(const char *src,const char *des);          //not use avformat
 extern int CBX_yuvtoH264(const char *src,const char *des);         //use avformat
 
+extern int CBX_pcmtoaac_raw(const char *src,const char *des);
+
 int main(int argc, char **argv)
 {
 #if 0
@@ -30,6 +32,7 @@ int main(int argc, char **argv)
 //    CBX_aactopcm(argv[1],argv[2]);
     CBX_pcmtoaac(argv[1],argv[2]);
 //    CBX_demux_codec(argv[1],argv[2],argv[3]);
+//    CBX_pcmtoaac_raw(argv[1],argv[2]);
 
 //    CBX_YUVto264(argv[1],argv[2]);
 //    CBX_yuvtoH264(argv[1],argv[2]);
