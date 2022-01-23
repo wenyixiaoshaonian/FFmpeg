@@ -70,7 +70,6 @@ static int open_input_file(const char *filename,AVFormatContext **fmt_ctx)
         printf( "Cannot find stream information\n");
         return ret;
     }
-    av_dump_format(fmt_ctx, 0, filename, 0);
     return 0;
 }
 
@@ -99,14 +98,14 @@ int CBX_remux(const char *src,const char *des)
     }
     
     //创建输出文件信息
-    avformat_alloc_output_context2(&ofmt_ctx, ofmt, NULL, outfile);
+    avformat_alloc_output_context2(&ofmt_ctx, NULL, NULL, outfile);
     if(!ofmt_ctx)
     {
         fprintf(stderr,"avformat_alloc_output_context2 error\n");
         exit(0);
 
     }
-//    ofmt = ofmt_ctx->oformat;
+    ofmt = ofmt_ctx->oformat;
 
     pkt = av_packet_alloc();
     if (!pkt)
@@ -135,13 +134,11 @@ int CBX_remux(const char *src,const char *des)
 
     av_dump_format(ofmt_ctx, 0, outfile, 1);
     //打开输出文件
-    if (!(ofmt->flags & AVFMT_NOFILE)) {
         ret = avio_open(&ofmt_ctx->pb, outfile, AVIO_FLAG_WRITE);
         if (ret < 0) {
             fprintf(stderr, "Could not open output file '%s'", outfile);
             exit(0);
         }
-    }
 
     //写入头部
     ret = avformat_write_header(ofmt_ctx, NULL);
@@ -182,8 +179,7 @@ end:
     avformat_close_input(&ifmt_ctx);
 
     /* close output */
-    if (ofmt_ctx && !(ofmt->flags & AVFMT_NOFILE))
-        avio_closep(&ofmt_ctx->pb);
+    avio_closep(&ofmt_ctx->pb);
     avformat_free_context(ofmt_ctx);
 
 
