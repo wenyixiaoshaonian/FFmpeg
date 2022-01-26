@@ -85,7 +85,7 @@ int CBX_remux(const char *src,const char *des)
     AVStream *in_stream, *out_stream;
     AVCodecContext *pCodecCtx= NULL;
     int i,index;
-    
+    int count = 0;
     infile  = src;
     outfile = des;
 
@@ -166,6 +166,8 @@ int CBX_remux(const char *src,const char *des)
         pkt->duration = av_rescale_q(pkt->duration, in_stream->time_base, out_stream->time_base);
         pkt->pos = -1;
 
+        if(pkt->stream_index == 0)
+            printf(">>>===111 count = %d pts = %ld\n",count++,pkt->pts);
         ret = av_interleaved_write_frame(ofmt_ctx, pkt);
         if (ret < 0) {
             fprintf(stderr, "Error muxing packet\n");

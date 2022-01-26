@@ -1,8 +1,3 @@
-#include <iostream>
-#include <SDL2/SDL.h>
-#include "SDL2/SDL_image.h"
-extern "C"
-{
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -19,25 +14,27 @@ extern "C"
 #include <libavutil/imgutils.h>
 #include <libavutil/samplefmt.h>
 #include <libavutil/timestamp.h>
+#include <libavutil/mathematics.h>
 
-}
+AVCodecContext *dec_ctx;
 
-static int open_input_file(const char *filename,AVFormatContext *ifmt_ctx)
+static int open_input_file(const char *filename,AVFormatContext **ifmt_ctx)
 {
     int ret = 0;
+    const char *infile;
 
     infile = filename;
-    if ((ret = avformat_open_input(&ifmt_ctx, filename, NULL, NULL)) < 0) {
+    if ((ret = avformat_open_input(ifmt_ctx, filename, NULL, NULL)) < 0) {
 //        std::cout << "Cannot open input file\n";
         printf("Cannot open input file");
         return ret;
     }
  
-    if ((ret = avformat_find_stream_info(ifmt_ctx, NULL)) < 0) {
+    if ((ret = avformat_find_stream_info(*ifmt_ctx, NULL)) < 0) {
         printf("Cannot find stream information");
         return ret;
     }
-    av_dump_format(ifmt_ctx, 0, filename, 0);
+    av_dump_format(*ifmt_ctx, 0, filename, 0);
     return 0;
 
 }
@@ -78,13 +75,13 @@ static int open_codec_context(int *stream_idx,
     return 0;
 }
 
-int main(int argc, char* argv[])
+int main_rtmp(const char *src)
 {
  
 	AVOutputFormat *ofmt = NULL;
 	AVFormatContext *ifmt_ctx = NULL, *ofmt_ctx = NULL;
-    AVCodecContext *dec_ctx;
-	AVPacket pkt;
+
+	AVPacket *pkt;
 	const char *in_filename, *out_filename;
 	int ret, i;
 	int videoindex=-1;
@@ -94,23 +91,18 @@ int main(int argc, char* argv[])
     int64_t start_time=0;
     AVStream *in_stream, *out_stream;
     AVCodecParameters *in_codecpar;
-    AVStream *in_stream, *out_stream;
-
-    out_filename = "rtmp://localhost/publishlive/livestream";//输出 URL（Output URL）[RTMP]
-	//out_filename = "rtp://233.233.233.233:6666";//输出 URL（Output URL）[UDP]
+    AVCodecContext *dec_ctx_v,*dec_ctx_a;
+    out_filename = "rtmp://192.168.1.35:8888/live/test";//输出 URL（Output URL）[RTMP]
 	
-    if(argc <2) {
-        printf("Usage: %s <input media file>",argv[0]);
-    }
 
-    in_filename = argv[1];
+    in_filename = src;
 
     avformat_network_init();
 
-    open_input_file(in_filename,ifmt_ctx);
+    open_input_file(in_filename,&ifmt_ctx);
     
-//    open_codec_context(*videoindex,&dec_ctx_v, ifmt_ctx, AVMEDIA_TYPE_VIDEO);
-//    open_codec_context(*videoindex,&dec_ctx_a, ifmt_ctx, AVMEDIA_TYPE_AUDIO);
+//    open_codec_context(&videoindex,&dec_ctx_v, ifmt_ctx, AVMEDIA_TYPE_VIDEO);
+//    open_codec_context(&audioindex,&dec_ctx_a, ifmt_ctx, AVMEDIA_TYPE_AUDIO);
 
     avformat_alloc_output_context2(&ofmt_ctx, NULL, "flv", out_filename); //RTMP
     if(!ofmt_ctx)
@@ -118,6 +110,11 @@ int main(int argc, char* argv[])
         fprintf(stderr,"avformat_alloc_output_context2 error\n");
         exit(0);
 
+    }
+    pkt = av_packet_alloc();
+    if (!pkt) {
+        fprintf(stderr, "Could not allocate the pkt data\n");
+        exit(1);
     }
 
     ofmt = ofmt_ctx->oformat;    
@@ -131,7 +128,7 @@ int main(int argc, char* argv[])
         if (!out_stream) {
             fprintf(stderr, "Failed allocating output stream\n");
             ret = AVERROR_UNKNOWN;
-            goto end;
+            return -1;
         }
         //复制编码器(参数等)
         open_codec_context(in_stream,&dec_ctx,ifmt_ctx,in_codecpar->codec_type);
@@ -139,9 +136,10 @@ int main(int argc, char* argv[])
         avcodec_parameters_from_context(out_stream->codecpar,dec_ctx);
 
         if (in_codecpar->codec_type == AVMEDIA_TYPE_VIDEO)
-            videoindex = in_stream;
+            videoindex = i;
         if (in_codecpar->codec_type == AVMEDIA_TYPE_AUDIO)
-            audioindex = in_stream;     
+            audioindex = i;   
+
 
         out_stream->codecpar->codec_tag = 0;
     }
@@ -151,7 +149,7 @@ int main(int argc, char* argv[])
         printf( "Error avio_open\n");
         exit(0);
     }
-
+    printf(">>>=== init finished\n");
     //写文件头（Write file header）
     ret = avformat_write_header(ofmt_ctx, NULL);
     if (ret < 0) {
@@ -161,73 +159,77 @@ int main(int argc, char* argv[])
     start_time=av_gettime();
 
     while (1) {
-
             //获取一个AVPacket（Get an AVPacket）
-            ret = av_read_frame(ifmt_ctx, &pkt);
-            if (ret < 0)
+            ret = av_read_frame(ifmt_ctx, pkt);
+            if (ret < 0) {
+                printf(">>>=== av_read_frame error!\n");
                 break;
+            }
 
             //视频处理 
-            if(pkt.stream_index==videoindex){  
+            if(pkt->stream_index==videoindex){ 
                 //Simple Write PTS
-                if(pkt.pts==AV_NOPTS_VALUE){
+                if(pkt->pts==AV_NOPTS_VALUE){
+                    printf(">>>=== 33333\n");
                     //Write PTS
                     AVRational time_base1=ifmt_ctx->streams[videoindex]->time_base;
                     //Duration between 2 frames (us)
                     int64_t calc_duration=(double)AV_TIME_BASE/av_q2d(ifmt_ctx->streams[videoindex]->r_frame_rate);
                     //Parameters
-                    pkt.pts=(double)(frame_index*calc_duration)/(double)(av_q2d(time_base1)*AV_TIME_BASE);
-                    pkt.dts=pkt.pts;
-                    pkt.duration=(double)calc_duration/(double)(av_q2d(time_base1)*AV_TIME_BASE);
+                    pkt->pts=(double)(frame_index*calc_duration)/(double)(av_q2d(time_base1)*AV_TIME_BASE);
+                    pkt->dts=pkt->pts;
+                    pkt->duration=(double)calc_duration/(double)(av_q2d(time_base1)*AV_TIME_BASE);
                 }
                 //添加视频推流的延迟,长度为视频帧的持续时长
                 AVRational time_base=ifmt_ctx->streams[videoindex]->time_base;
-                int64_t pts_time = av_rescale_q(pkt.dts, time_base, AV_TIME_BASE_Q);    //切换到文件播放的时间
+                int64_t pts_time = av_rescale_q(pkt->dts, time_base, AV_TIME_BASE_Q);    //切换到文件播放的时间
                 int64_t now_time = av_gettime() - start_time;
                 //播放此帧的时间戳和实际的时间比较
                 if (pts_time > now_time)
                     av_usleep(pts_time - now_time);
-     
+                 printf(">>>=== 44444\n");
                 //Print to Screen
-                printf("Send %8d video frames to output URL\n",frame_index);
+                printf("Send %8d video frames to output URL  pts = %ld  size = %d\n",frame_index,pkt->pts,pkt->size);
                 frame_index++;
             }
             //音频处理 
             //音频数据很小，推流时不用加延时，但需要加上pts
-            if(pkt.stream_index==audioindex){   
-            //todo https://www.cnblogs.com/leisure_chn/p/10623968.html
-                if(pkt.pts==AV_NOPTS_VALUE){
+            else if(pkt->stream_index==audioindex){   
+                if(pkt->pts==AV_NOPTS_VALUE){
                     //Write PTS
                     AVRational time_base1=ifmt_ctx->streams[audioindex]->time_base;
                     //Duration between 2 frames (us)
                     int64_t calc_duration=(double)AV_TIME_BASE/av_q2d(ifmt_ctx->streams[audioindex]->r_frame_rate);
                     //Parameters
-                    pkt.pts=(double)(audio_index*calc_duration)/(double)(av_q2d(time_base1)*AV_TIME_BASE);
-                    pkt.dts=pkt.pts;
-                    pkt.duration=(double)calc_duration/(double)(av_q2d(time_base1)*AV_TIME_BASE);
+                    pkt->pts=(double)(audio_index*calc_duration)/(double)(av_q2d(time_base1)*AV_TIME_BASE);
+                    pkt->dts=pkt->pts;
+                    pkt->duration=(double)calc_duration/(double)(av_q2d(time_base1)*AV_TIME_BASE);
                     
                 }
-            printf("Send %8d video frames to output URL\n",audio_index);
             audio_index++;
 
             }
-            in_stream  = ifmt_ctx->streams[pkt.stream_index];
-            out_stream = ofmt_ctx->streams[pkt.stream_index];            
+            else {
+              printf("error pkt->stream_index = %d\n",pkt->stream_index); 
+              continue;
+            }
+            in_stream  = ifmt_ctx->streams[pkt->stream_index];
+            out_stream = ofmt_ctx->streams[pkt->stream_index];            
             //转换PTS/DTS（Convert PTS/DTS）
-            pkt.pts = av_rescale_q_rnd(pkt.pts, in_stream->time_base, out_stream->time_base, (AVRounding)(AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX));
-            pkt.dts = av_rescale_q_rnd(pkt.dts, in_stream->time_base, out_stream->time_base, (AVRounding)(AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX));
-            pkt.duration = av_rescale_q(pkt.duration, in_stream->time_base, out_stream->time_base);
-            pkt.pos = -1;
+            pkt->pts = av_rescale_q_rnd(pkt->pts, in_stream->time_base, out_stream->time_base, (AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX));
+            pkt->dts = av_rescale_q_rnd(pkt->dts, in_stream->time_base, out_stream->time_base, (AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX));
+            pkt->duration = av_rescale_q(pkt->duration, in_stream->time_base, out_stream->time_base);
+            pkt->pos = -1;
 
             //ret = av_write_frame(ofmt_ctx, &pkt);
-            ret = av_interleaved_write_frame(ofmt_ctx, &pkt);
+            ret = av_interleaved_write_frame(ofmt_ctx, pkt);
      
             if (ret < 0) {
-                printf( "Error muxing packet\n");
+                printf( "Error av_interleaved_write_frame\n");
                 break;
             }
             
-            av_free_packet(&pkt);
+            av_packet_unref(pkt);
             
         }
         //写文件尾（Write file trailer）

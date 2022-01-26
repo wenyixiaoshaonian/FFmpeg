@@ -15,11 +15,15 @@ extern int CBX_pcmtoaac_raw(const char *src,const char *des);
 
 extern int CBX_pcmtoaac_raw_filter(const char *src,const char *des);
 
+extern int CBX_remux(const char *src,const char *des);
+
+extern int main_rtmp(const char *src);
+
 int main(int argc, char **argv)
 {
-#if 0
+#if 1
     if (argc < 2) {
-        fprintf(stderr, "Usage: %s <input file> <output file>\n", argv[0]);
+        fprintf(stderr, "Usage: %s <input file>\n", argv[0]);
         exit(0);
     }
 #else
@@ -35,9 +39,12 @@ int main(int argc, char **argv)
 //    CBX_pcmtoaac(argv[1],argv[2]);
 //    CBX_demux_codec(argv[1],argv[2],argv[3]);
 //    CBX_pcmtoaac_raw(argv[1],argv[2]);
-    CBX_pcmtoaac_raw_filter(argv[1],argv[2]);
+//    CBX_pcmtoaac_raw_filter(argv[1],argv[2]);
+//    CBX_remux(argv[1],argv[2]);
 
 //    CBX_YUVto264(argv[1],argv[2]);
 //    CBX_yuvtoH264(argv[1],argv[2]);
+    main_rtmp(argv[1]);
+
     return 0;
 }

@@ -173,11 +173,11 @@ int CBX_demux(const char *src,const char *des_video,const char *des_audio)
 
         //写入数据
         if(pkt->stream_index == stream_idx_v) {
-              printf(">>>===111 video pkt.size = %d\n",pkt->size);
+              printf(">>>===111 video pkt.size = %d  pts = %ld\n",pkt->size,pkt->pts);
               ret = av_write_frame(ofmt_ctx_v, pkt);
         }
         else if (pkt->stream_index == stream_idx_a) {
-              printf(">>>===222 audio pkt.size = %d\n",pkt->size);
+//              printf(">>>===222 audio pkt.size = %d\n",pkt->size);
               pkt->stream_index = out_stream_a->index;  //源文件中的audio_index = 1，到新文件中需要重置 否则会报错
               ret = av_write_frame(ofmt_ctx_a, pkt);
         }

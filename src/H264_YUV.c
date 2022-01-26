@@ -21,20 +21,22 @@ static int video_dst_linesize[4];
 static int video_dst_bufsize;
 
 
-//#define USE_RGB //原始数据是否为RGB
+#define USE_RGB //原始数据是否为RGB
+AVFrame *RGB_frame;
+
 static void yuv_2_rgb(AVCodecContext *dec_ctx,AVFrame *frame, FILE *dst)
 {
     SwsContext *ctx= NULL;
-    AVFrame *RGB_frame;
+    
     int ret;
     RGB_frame = av_frame_alloc();
     if (!RGB_frame) {
         fprintf(stderr, "Could not allocate video frame\n");
         exit(1);
     }
-    RGB_frame->format = AV_PIX_FMT_RGB24;
-	RGB_frame->width = dec_ctx->width;
-	RGB_frame->height = dec_ctx->height;
+    RGB_frame->format = AV_PIX_FMT_YUVJ420P;
+	RGB_frame->width = dec_ctx->width/2;
+	RGB_frame->height = dec_ctx->height/2;
     
     ret = av_frame_get_buffer(RGB_frame, 0);
     if (ret < 0) {
@@ -42,8 +44,8 @@ static void yuv_2_rgb(AVCodecContext *dec_ctx,AVFrame *frame, FILE *dst)
         exit(1);
     }    
 	ctx = sws_getCachedContext(ctx,
-		dec_ctx->width,dec_ctx->height,AV_PIX_FMT_YUV444P,
-		dec_ctx->width,dec_ctx->height,AV_PIX_FMT_RGB24,NULL,
+		dec_ctx->width,dec_ctx->height,AV_PIX_FMT_YUVJ420P,
+		dec_ctx->width/2,dec_ctx->height/2,AV_PIX_FMT_YUVJ420P,NULL,
 		NULL,NULL,NULL);
 
     int h = sws_scale(ctx,frame->data,frame->linesize,0,frame->height,RGB_frame->data,RGB_frame->linesize);
@@ -53,7 +55,7 @@ static void yuv_2_rgb(AVCodecContext *dec_ctx,AVFrame *frame, FILE *dst)
     }
 
     /* write to rawvideo file */
-    fwrite(RGB_frame->data[0], 1, video_dst_bufsize, dst);
+//    fwrite(RGB_frame->data[0], 1, video_dst_bufsize, dst);
 
 }
 
@@ -94,19 +96,20 @@ static void decode(AVCodecContext *dec_ctx, AVFrame *frame, AVPacket *pkt,
         //如果是RGB格式，调用如下接口
         yuv_2_rgb(dec_ctx,frame,video_dst_file);
 
-#else
+#endif
+
         //如果原始格式为yuv，将解码帧复制到目标缓冲区后直接写入
 
         /* copy decoded frame to destination buffer:
          * this is required since rawvideo expects non aligned data */
         av_image_copy(video_dst_data, video_dst_linesize,
-                      (const uint8_t **)(frame->data), frame->linesize,
-                      dec_ctx->pix_fmt, dec_ctx->width, dec_ctx->height);
+                      (const uint8_t **)(RGB_frame->data), RGB_frame->linesize,
+                      dec_ctx->pix_fmt, dec_ctx->width/2, dec_ctx->height/2);
 
         /* write to rawvideo file */
         fwrite(video_dst_data[0], 1, video_dst_bufsize, video_dst_file);
 
-#endif
+
     }
 }
 //不使用format
