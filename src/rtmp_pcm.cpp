@@ -182,9 +182,9 @@ int main(int argc, char* argv[])
                 }
                 //添加视频推流的延迟,长度为视频帧的持续时长
                 AVRational time_base=ifmt_ctx->streams[videoindex]->time_base;
-                AVRational time_base_q={1,AV_TIME_BASE};
-                int64_t pts_time = av_rescale_q(pkt.dts, time_base, time_base_q);
+                int64_t pts_time = av_rescale_q(pkt.dts, time_base, AV_TIME_BASE_Q);    //切换到文件播放的时间
                 int64_t now_time = av_gettime() - start_time;
+                //播放此帧的时间戳和实际的时间比较
                 if (pts_time > now_time)
                     av_usleep(pts_time - now_time);
      
