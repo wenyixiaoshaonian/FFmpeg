@@ -6,6 +6,8 @@
 #include <libavformat/internal.h>
 //#include <fdk-aac/aacenc_lib.h>
 #include <libavcodec/codec.h>
+#include <libavfilter/avfilter.h>
+#include <libavfilter/buffersrc.h>
 
  /* check that a given sample format is supported by the encoder */
  static int check_sample_fmt(const AVCodec *codec, enum AVSampleFormat sample_fmt)
@@ -53,7 +55,7 @@
      AVDictionary *options_dict = NULL;
      uint8_t options_str[1024];
      uint8_t ch_layout[64];
- 
+    uint8_t options_str_src[1024];
      int err;
  
      /* Create a new filtergraph, which will contain all the filters. */
@@ -76,17 +78,22 @@
          fprintf(stderr, "Could not allocate the abuffer instance.\n");
          return AVERROR(ENOMEM);
      }
- 
+#if 0 
      /* Set the filter options through the AVOptions API. */
      av_get_channel_layout_string(ch_layout, sizeof(ch_layout), 0, AV_CH_LAYOUT_STEREO);
      av_opt_set    (abuffer_ctx, "channel_layout", ch_layout,                            AV_OPT_SEARCH_CHILDREN);
      av_opt_set    (abuffer_ctx, "sample_fmt",     av_get_sample_fmt_name(AV_SAMPLE_FMT_FLT), AV_OPT_SEARCH_CHILDREN);
      av_opt_set_q  (abuffer_ctx, "time_base",      (AVRational){ 1, 48000 },  AV_OPT_SEARCH_CHILDREN);
      av_opt_set_int(abuffer_ctx, "sample_rate",    48000,                     AV_OPT_SEARCH_CHILDREN);
- 
+#else
+     snprintf(options_str_src, sizeof(options_str_src),
+              "sample_fmt=%s:sample_rate=%d:channel_layout=0x%"PRIx64,
+              av_get_sample_fmt_name(AV_SAMPLE_FMT_FLT), 48000,
+              (uint64_t)AV_CH_LAYOUT_STEREO);
+#endif
      /* Now initialize the filter; we pass NULL options, since we have already
       * set all the options above. */
-     err = avfilter_init_str(abuffer_ctx, NULL);
+     err = avfilter_init_str(abuffer_ctx, options_str_src);
      if (err < 0) {
          fprintf(stderr, "Could not initialize the abuffer filter.\n");
          return err;
@@ -215,7 +222,7 @@
     return 0;
  }
 
- int CBX_pcmtoaac_raw(const char *src,const char *des)
+ int CBX_pcmtoaac_raw_filter(const char *src,const char *des)
  {
      const char *out_file, *in_file;
      AVOutputFormat* fmt = NULL;
@@ -223,6 +230,7 @@
      AVCodec* pCodec;
   
      uint8_t* frame_buf;
+     AVFrame* pFrame_src;
      AVFrame* pFrame;
      AVPacket* pkt = NULL;
      SwrContext *swr;
@@ -269,7 +277,7 @@
     pCodecCtx->profile=FF_PROFILE_AAC_LOW ;
     pCodecCtx->strict_std_compliance = FF_COMPLIANCE_EXPERIMENTAL; 
 
-    printf(">>>===  fmt->audio_codec = %d   AV_CODEC_ID_AAC = %d  pCodec->sample_fmts[0] = %d \n",pCodec->id,AV_CODEC_ID_AAC,pCodec->sample_fmts[0]);
+    printf(">>>===  fmt->audio_codec = %d   AV_CODEC_ID_AAC = %d  pCodec->sample_fmts[0] = %d channels = %d\n",pCodec->id,AV_CODEC_ID_AAC,pCodec->sample_fmts[0],av_get_channel_layout_nb_channels(pCodecCtx->channel_layout));
 
     if ((ret = avcodec_open2(pCodecCtx, pCodec,NULL)) < 0){
       printf("Failed to open encoder!\n");
@@ -293,10 +301,27 @@
          printf(">>>====error av_frame_alloc \n");
          return -1;
      }
+     pFrame->sample_rate       = 48000;
      pFrame->nb_samples     = pCodecCtx->frame_size;
      pFrame->format         = pCodecCtx->sample_fmt;
      pFrame->channel_layout = pCodecCtx->channel_layout;
+     pFrame->channels       = 2;
      ret = av_frame_get_buffer(pFrame, 0);
+     if (ret < 0) {
+         fprintf(stderr, "Could not allocate audio data buffers\n");
+         return -1;
+     }
+     pFrame_src = av_frame_alloc();
+     if (!pFrame_src) {
+         printf(">>>====error av_frame_alloc \n");
+         return -1;
+     }
+     pFrame_src->sample_rate       = 48000;
+     pFrame_src->nb_samples     = pCodecCtx->frame_size;
+     pFrame_src->format         = AV_SAMPLE_FMT_FLT;
+     pFrame_src->channel_layout = pCodecCtx->channel_layout;
+     pFrame_src->channels       = 2;
+     ret = av_frame_get_buffer(pFrame_src, 0);
      if (ret < 0) {
          fprintf(stderr, "Could not allocate audio data buffers\n");
          return -1;
@@ -306,8 +331,8 @@
          printf(">>>====error av_packet_alloc \n");
          return -1;
      }
-     size = av_samples_get_buffer_size(NULL, pCodecCtx->channels,pCodecCtx->frame_size,pCodecCtx->sample_fmt, 1);
-     size = size*2;
+     size = av_samples_get_buffer_size(NULL, pCodecCtx->channels,pCodecCtx->frame_size,AV_SAMPLE_FMT_FLT, 1);
+//     size = size*2;
      outs[0]=(uint8_t *)av_malloc(size);
      outs[1]=(uint8_t *)av_malloc(size);
      printf(">>>===  aaa  size = %d channels = %d frame_size = %d  sample_fmt = %d \n"
@@ -330,9 +355,11 @@
          pFrame->pts=i;
          i++;
 #else
+        pFrame_src->data[0] = frame_buf;
         /* push the audio data from decoded frame into the filtergraph */
-        if (av_buffersrc_add_frame_flags(fsrc, frame_buf, AV_BUFFERSRC_FLAG_KEEP_REF) < 0) {
+        if (av_buffersrc_add_frame_flags(fsrc, pFrame_src, AV_BUFFERSRC_FLAG_KEEP_REF) < 0) {
             av_log(NULL, AV_LOG_ERROR, "Error while feeding the audio filtergraph\n");
+            printf("Failed to av_buffersrc_add_frame_flags! \n");
             break;
         }
 
@@ -341,8 +368,10 @@
             ret = av_buffersink_get_frame(fsink, pFrame);
             if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
                 break;
-            if (ret < 0)
+            if (ret < 0) {
+                printf("Failed to av_buffersink_get_frame! \n");
                 break;
+            }
         }
 #endif
 
