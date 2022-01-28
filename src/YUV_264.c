@@ -6,6 +6,8 @@
 #include <libswresample/swresample.h>
 #include <libavformat/swscale_internal.h>
 
+AVCodecContext* pCodecCtx; 
+
 static int encode(AVCodecContext *enc_ctx, AVFrame *frame, AVPacket *pkt,
                    FILE *outfile)
 {
@@ -14,10 +16,9 @@ static int encode(AVCodecContext *enc_ctx, AVFrame *frame, AVPacket *pkt,
     /* send the frame to the encoder */
     if (frame)
         printf("Send frame %3"PRId64"\n", frame->pts);
-
     ret = avcodec_send_frame(enc_ctx, frame);
     if (ret < 0) {
-        fprintf(stderr, "Error sending a frame for encoding\n");
+        fprintf(stderr, "Error sending a frame for encoding ret = %d\n",ret);
         return -1;
     }
 
@@ -30,7 +31,7 @@ static int encode(AVCodecContext *enc_ctx, AVFrame *frame, AVPacket *pkt,
             return -1;
         }
 
-//        printf("Write packet %3"PRId64" (size=%5d)\n", pkt->pts, pkt->size);
+        printf("Write packet %3"PRId64" (size=%5d)\n", pkt->pts, pkt->size);
         fwrite(pkt->data, 1, pkt->size, outfile);
         av_packet_unref(pkt);
     }
@@ -43,15 +44,16 @@ static int open_input_codec_context(const char *file,
 	dec_ctx->codec_id = fmt_x->video_codec;
 	dec_ctx->codec_type = AVMEDIA_TYPE_VIDEO;
 	dec_ctx->pix_fmt = AV_PIX_FMT_YUVJ420P;
-    dec_ctx->bit_rate = 565960;   // 码率
+    dec_ctx->bit_rate = 1565960;   // 码率
     dec_ctx->gop_size=250;        // 每250帧产生一个关键帧
 	dec_ctx->width = w;  
 	dec_ctx->height = h;
+    dec_ctx->profile = FF_PROFILE_H264_MAIN;
     /* frames per second 帧率*/
     dec_ctx->time_base = (AVRational){1, 30};
     dec_ctx->framerate = (AVRational){30, 1}; 
       
-    dec_ctx->qmax = 3;       //量化因子，越大编码的质量越
+    dec_ctx->qmax = 3;       //量化因子，越大编码的质量越差
     dec_ctx->qcompress =1;
     //Optional Param
     dec_ctx->max_b_frames=0;      //默认值为3   ，最多x个连续P帧可以被替换为B帧,增加压缩率  ,设置为0，表示不需要B帧
@@ -79,9 +81,10 @@ int CBX_YUVto264(const char *src,const char *des)
 	AVCodec* pCodec;
     AVFrame* picture;
     AVPacket* pkt;
-    AVCodecContext* pCodecCtx; 
+
 	uint8_t* picture_buf;
     int y_size;
+    int i = 0;
 
 	int size;
 	int ret=0;
@@ -99,7 +102,7 @@ int CBX_YUVto264(const char *src,const char *des)
 
     fmt = av_guess_format(NULL, outfilename, NULL); 
     
-    pCodec = avcodec_find_decoder(fmt->video_codec);
+    pCodec = avcodec_find_encoder(fmt->video_codec);
     if (!pCodec) {
         fprintf(stderr, "Codec not found\n");
         return -1;
@@ -115,24 +118,30 @@ int CBX_YUVto264(const char *src,const char *des)
 
     //存放图片原始数据 
 	picture = av_frame_alloc();     //创建存放编码前(原始数据)的结构体
+	size = av_image_get_buffer_size(pCodecCtx->pix_fmt, pCodecCtx->width, pCodecCtx->height); 
+	picture_buf = (uint8_t *)av_malloc(size);   
 	if (!picture_buf)
 	{
-        fprintf(stderr, "av_frame_alloc error \n");
 		return -1;
 	}
     picture->format = AV_PIX_FMT_YUVJ420P;
     picture->width  = pCodecCtx->width;
     picture->height = pCodecCtx->height;
-    printf(">>>>===111 pCodecCtx->width = %d    pCodecCtx->height = %d\n",pCodecCtx->width,pCodecCtx->height);
+
     ret = av_frame_get_buffer(picture, 0);
     if (ret < 0) {
         fprintf(stderr, "Could not allocate the video frame data\n");
         return -1;
     }
+    printf(">>>>===111 pCodecCtx->width = %d    pCodecCtx->height = %d\n",pCodecCtx->width,pCodecCtx->height);
   
     //创建从原始文件中读取数据的缓冲区
     size = av_image_get_buffer_size(pCodecCtx->pix_fmt, pCodecCtx->width, pCodecCtx->height);   
 	picture_buf = (uint8_t *)av_malloc(size);   
+	if (!picture_buf)
+	{
+		return -1;
+	}
 
     //创建存放编码后的结构体
     pkt = av_packet_alloc();
@@ -140,7 +149,7 @@ int CBX_YUVto264(const char *src,const char *des)
         fprintf(stderr, "av_packet_alloc error\n");
         return -1;
     }
-    int i = 0;
+
     y_size = pCodecCtx->width * pCodecCtx->height;
 
     //开始读取数据
@@ -157,10 +166,8 @@ int CBX_YUVto264(const char *src,const char *des)
 
         picture->pts = i;
         i++;
-
-    	//Encode
+        //Encode
         encode(pCodecCtx, picture, pkt,out_file);
-        printf(">>>>>>>>>>>===== pkt->size = %d\n",pkt->size);
 
     }    
     encode(pCodecCtx, NULL, pkt, out_file);

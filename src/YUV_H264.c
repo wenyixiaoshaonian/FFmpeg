@@ -33,13 +33,11 @@ static int encode(AVCodecContext *enc_ctx, AVFrame *frame, AVPacket *pkt)
 static int alloc_codec_contxt(AVStream* st_video,AVOutputFormat* fmt_x, AVCodec *codc,AVCodecContext *codec_ctx,int w,int h)
 {
     int ret;
-    
-    codec_ctx = st_video->internal->avctx;
     codec_ctx->codec_id = fmt_x->video_codec;
     codec_ctx->codec_type = AVMEDIA_TYPE_VIDEO;
     codec_ctx->pix_fmt = AV_PIX_FMT_YUVJ420P;
-    codec_ctx->bit_rate = 24656000;   // 码率
-    codec_ctx->gop_size=250;        // 每250帧产生一个关键帧
+    codec_ctx->bit_rate = 1200000;   // 码率
+    codec_ctx->gop_size=25;        // 每250帧产生一个关键帧
     codec_ctx->width = w;  
     codec_ctx->height = h;
     /* frames per second 帧率*/
@@ -47,7 +45,7 @@ static int alloc_codec_contxt(AVStream* st_video,AVOutputFormat* fmt_x, AVCodec 
     codec_ctx->framerate = (AVRational){30, 1}; 
           
     //H264
-    codec_ctx->qmax = 3;       //量化因子，越大编码的质量越差
+    codec_ctx->qmax = 1;       //量化因子，越大编码的质量越差
     codec_ctx->qcompress =1;
     //Optional Param
     codec_ctx->max_b_frames=0;      //默认值为3   ，最多x个连续P帧可以被替换为B帧,增加压缩率  ,设置为0，表示不需要B帧
@@ -98,7 +96,7 @@ int CBX_yuvtoH264(const char *src,const char *des)
  
 	FILE *in_file = NULL;                            //YUV source
 	FILE *out_file = NULL;   
-	int in_w=960,in_h=544;                           //YUV's width and height
+	int in_w=720,in_h=1280;                           //YUV's width and height
   
     filename    = src;
     outfilename = des;
@@ -106,18 +104,17 @@ int CBX_yuvtoH264(const char *src,const char *des)
 	in_file =  fopen(filename, "rb");
     out_file = fopen(outfilename, "wb+");
 
-#if 0
+#if 1
 	//Method 1
 	pFormatCtx = avformat_alloc_context();     
 	//Guess format
 	fmt = av_guess_format(NULL, outfilename, NULL); 
 	pFormatCtx->oformat = fmt;
-    printf(">>>==fmt->video_codec = %d \n",fmt->video_codec);
-#endif
+#else
 	//Method 2. More simple
-	avformat_alloc_output_context2(&pFormatCtx, fmt, NULL, out_file);
-//	fmt = pFormatCtx->oformat;
-
+	avformat_alloc_output_context2(&pFormatCtx, NULL, NULL, out_file);
+	fmt = pFormatCtx->oformat;
+#endif
     //Output URL
 	if (avio_open(&pFormatCtx->pb,outfilename, AVIO_FLAG_READ_WRITE) < 0){    
 		printf("Couldn't open output file.");
@@ -129,6 +126,7 @@ int CBX_yuvtoH264(const char *src,const char *des)
 	if (video_st==NULL){
 		return -1;
 	}
+    pCodecCtx = video_st->internal->avctx;
     //创建一个AVCodecContext并填充数据流中的对应信息
     alloc_codec_contxt(video_st,fmt,pCodec,pCodecCtx,in_w,in_h);
 
@@ -140,7 +138,7 @@ int CBX_yuvtoH264(const char *src,const char *des)
 	{
 		return -1;
 	}
-    picture->format = AV_PIX_FMT_YUVJ420P;
+    picture->format = pCodecCtx->pix_fmt;
     picture->width  = pCodecCtx->width;
     picture->height = pCodecCtx->height;
 
@@ -169,14 +167,14 @@ int CBX_yuvtoH264(const char *src,const char *des)
         picture->data[1] = picture_buf+ y_size;     
         picture->data[2] = picture_buf+ y_size*5/4; 
 
-        picture->pts = i * (video_st->time_base.den)/((video_st->time_base.num)*30);
+        picture->pts = i ;
         i++;
 
     	//Encode
         encode(pCodecCtx, picture, pkt);
 
     	pkt->stream_index = video_st->index;
-        printf(">>>>>>>>>>>===== pkt->size = %d",pkt->size);
+        printf(">>>>>>>>>>>===== pkt->size = %d  pts = %d\n",pkt->size,pkt->pts);
     	ret = av_write_frame(pFormatCtx, pkt);
         if (ret < 0) {
             fprintf(stderr, "Could not av_write_frame\n");
