@@ -24,14 +24,15 @@ static int encode(AVCodecContext *enc_ctx, AVFrame *frame, AVPacket *pkt,
 
     while (ret >= 0) {
         ret = avcodec_receive_packet(enc_ctx, pkt);
-        if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
+        if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
+            printf(">>>===111 error \n");
             return;
+        }
         else if (ret < 0) {
             fprintf(stderr, "Error during encoding\n");
             return -1;
         }
-
-        printf("Write packet %3"PRId64" (size=%5d)\n", pkt->pts, pkt->size);
+        printf(">>>===pkt->pts = %ld    pkt->size = %d\n",pkt->pts,pkt->size);
         fwrite(pkt->data, 1, pkt->size, outfile);
         av_packet_unref(pkt);
     }
@@ -44,17 +45,35 @@ static int open_input_codec_context(const char *file,
 	dec_ctx->codec_id = fmt_x->video_codec;
 	dec_ctx->codec_type = AVMEDIA_TYPE_VIDEO;
 	dec_ctx->pix_fmt = AV_PIX_FMT_YUVJ420P;
-    dec_ctx->bit_rate = 1565960;   // 码率
     dec_ctx->gop_size=250;        // 每250帧产生一个关键帧
 	dec_ctx->width = w;  
-	dec_ctx->height = h;
+	dec_ctx->height = h;   
+	dec_ctx->bit_rate_tolerance   = 100000;        
     dec_ctx->profile = FF_PROFILE_H264_MAIN;
     /* frames per second 帧率*/
     dec_ctx->time_base = (AVRational){1, 30};
     dec_ctx->framerate = (AVRational){30, 1}; 
-      
-    dec_ctx->qmax = 3;       //量化因子，越大编码的质量越差
+#if 0
+    //使用VBR：动态码率  的方式
+    dec_ctx->flags |= AV_CODEC_FLAG_QSCALE;
+	dec_ctx->rc_max_rate  = 100000;  
+	dec_ctx->rc_min_rate  = 100000; 
+    dec_ctx->bit_rate = 100000;   // 平均码率
+
+#else
+
+    //使用CBR：调整QR来保持码率的恒定
+    dec_ctx->bit_rate = 100000;   // 平均码率
+	dec_ctx->rc_max_rate  = 100000;  
+	dec_ctx->rc_min_rate  = 100000; 
+    dec_ctx->bit_rate_tolerance   = 100000;
+    dec_ctx->rc_buffer_size = 100000;
+    dec_ctx->global_quality = 30;
+    dec_ctx->qmax = 50;       //量化因子，越大编码的质量越差
+    dec_ctx->qmin = 0;       //量化因子，越大编码的质量越差
+#endif
     dec_ctx->qcompress =1;
+//    dec_ctx->qblur = 1;
     //Optional Param
     dec_ctx->max_b_frames=0;      //默认值为3   ，最多x个连续P帧可以被替换为B帧,增加压缩率  ,设置为0，表示不需要B帧
 
