@@ -14,8 +14,8 @@ static int encode(AVCodecContext *enc_ctx, AVFrame *frame, AVPacket *pkt,
     int ret;
 
     /* send the frame to the encoder */
-    if (frame)
-        printf("Send frame %3"PRId64"\n", frame->pts);
+//    if (frame)
+//        printf("Send frame %3"PRId64"\n", frame->pts);
     ret = avcodec_send_frame(enc_ctx, frame);
     if (ret < 0) {
         fprintf(stderr, "Error sending a frame for encoding ret = %d\n",ret);
@@ -25,14 +25,13 @@ static int encode(AVCodecContext *enc_ctx, AVFrame *frame, AVPacket *pkt,
     while (ret >= 0) {
         ret = avcodec_receive_packet(enc_ctx, pkt);
         if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
-            printf(">>>===111 error \n");
             return;
         }
         else if (ret < 0) {
             fprintf(stderr, "Error during encoding\n");
             return -1;
         }
-        printf(">>>===pkt->pts = %ld    pkt->size = %d\n",pkt->pts,pkt->size);
+//        printf(">>>===pkt->pts = %ld    pkt->size = %d\n",pkt->pts,pkt->size);
         fwrite(pkt->data, 1, pkt->size, outfile);
         av_packet_unref(pkt);
     }
@@ -45,48 +44,56 @@ static int open_input_codec_context(const char *file,
 	dec_ctx->codec_id = fmt_x->video_codec;
 	dec_ctx->codec_type = AVMEDIA_TYPE_VIDEO;
 	dec_ctx->pix_fmt = AV_PIX_FMT_YUVJ420P;
-    dec_ctx->gop_size=250;        // 每250帧产生一个关键帧
+    dec_ctx->gop_size=10;        // 每250帧产生一个关键帧
 	dec_ctx->width = w;  
 	dec_ctx->height = h;   
-	dec_ctx->bit_rate_tolerance   = 100000;        
-    dec_ctx->profile = FF_PROFILE_H264_MAIN;
+//    dec_ctx->profile = FF_PROFILE_H264_HIGH;
     /* frames per second 帧率*/
     dec_ctx->time_base = (AVRational){1, 30};
     dec_ctx->framerate = (AVRational){30, 1}; 
-#if 0
-    //使用VBR：动态码率  的方式
-    dec_ctx->flags |= AV_CODEC_FLAG_QSCALE;
-	dec_ctx->rc_max_rate  = 100000;  
-	dec_ctx->rc_min_rate  = 100000; 
-    dec_ctx->bit_rate = 100000;   // 平均码率
-
-#else
-
-    //使用CBR：调整QR来保持码率的恒定
-    dec_ctx->bit_rate = 100000;   // 平均码率
-	dec_ctx->rc_max_rate  = 100000;  
-	dec_ctx->rc_min_rate  = 100000; 
-    dec_ctx->bit_rate_tolerance   = 100000;
-    dec_ctx->rc_buffer_size = 100000;
-    dec_ctx->global_quality = 30;
-    dec_ctx->qmax = 50;       //量化因子，越大编码的质量越差
-    dec_ctx->qmin = 0;       //量化因子，越大编码的质量越差
-#endif
-    dec_ctx->qcompress =1;
-//    dec_ctx->qblur = 1;
-    //Optional Param
-    dec_ctx->max_b_frames=0;      //默认值为3   ，最多x个连续P帧可以被替换为B帧,增加压缩率  ,设置为0，表示不需要B帧
-
     // Set Option
     AVDictionary *param = 0;
+#if 0
+    //使用VBR:平均码率
+    //if rc_max_rate = rc_min_rate = bit_rate,则为CBR模式
+//  dec_ctx->flags |= AV_CODEC_FLAG_QSCALE; //固定量化
+	dec_ctx->rc_max_rate  = 200000;  
+	dec_ctx->rc_min_rate  = 100000; 
+    dec_ctx->bit_rate = 150000;   // 平均码率
+    dec_ctx->bit_rate_tolerance   = 150000;
+//    dec_ctx->rc_buffer_size = 150000;
+//    dec_ctx->rc_initial_buffer_occupancy = dec_ctx->rc_buffer_size * 3/4;
+
+//  dec_ctx->qmax = 10;       //量化因子，越大编码的质量越差
+//  dec_ctx->qmin = 1;       //量化因子，越大编码的质量越差
+
+
+#else
+      if(dec_ctx->codec_id == AV_CODEC_ID_H264) {
+          //CQP
+//          av_dict_set_int(&param, "qp", 30, 0);
+          //CRF
+        av_dict_set(&param, "crf", "30", 0);
+          av_dict_set(&param, "crf_max", "35", 0);
+      }
+#endif
+
+//  dec_ctx->qcompress =1;
+//    dec_ctx->qblur = 1;
+    //Optional Param
+    dec_ctx->max_b_frames=2;      //默认值为3   ，最多x个连续P帧可以被替换为B帧,增加压缩率  ,设置为0，表示不需要B帧
+    av_dict_set_int(&param, "b_frame_strategy", 1, 0);
+
+
     //H.264
     if(dec_ctx->codec_id == AV_CODEC_ID_H264) {
         av_dict_set(&param, "preset", "slow", 0);      //压缩速度慢，保证视频质量
         av_dict_set(&param, "tune", "zerolatency", 0); //零延迟
-        //av_dict_set(¶m, "profile", "main", 0);
+        
+        av_dict_set(&param, "profile", "main", 0);
     }
     /* open it */
-    if (avcodec_open2(dec_ctx, Codec, NULL) < 0) {
+    if (avcodec_open2(dec_ctx, Codec, &param) < 0) {
         fprintf(stderr, "Could not open codec\n");
         return -1;
     }
@@ -146,6 +153,7 @@ int CBX_YUVto264(const char *src,const char *des)
     picture->format = AV_PIX_FMT_YUVJ420P;
     picture->width  = pCodecCtx->width;
     picture->height = pCodecCtx->height;
+//    picture->quality = FF_QP2LAMBDA *50;
 
     ret = av_frame_get_buffer(picture, 0);
     if (ret < 0) {

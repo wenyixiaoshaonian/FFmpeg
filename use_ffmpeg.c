@@ -42,9 +42,9 @@ int main(int argc, char **argv)
 //    CBX_pcmtoaac_raw_filter(argv[1],argv[2]);
 //    CBX_remux(argv[1],argv[2]);
 
-//    CBX_YUVto264(argv[1],argv[2]);
+    CBX_YUVto264(argv[1],argv[2]);
 //    CBX_yuvtoH264(argv[1],argv[2]);
-    main_rtmp(argv[1]);
+//    main_rtmp(argv[1]);
 
     return 0;
 }
